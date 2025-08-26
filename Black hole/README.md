@@ -11,11 +11,12 @@ Un simulador interactivo y sofisticado de agujeros negros con física relativist
   - Corrimiento al rojo gravitacional
   - Precesión del perihelio
   - Radio de Schwarzschild y horizonte de eventos
+  - Interacciones gravitacionales entre todos los objetos
+  - Colisiones inelásticas con conservación del momento
 
-- **Integración numérica precisa**
-  - Método Runge-Kutta de 4º orden para alta precisión
-  - Diferentes niveles de precisión seleccionables
-  - Conservación de energía y momento angular
+- **Integración numérica**
+  - Subpasos configurables para mayor estabilidad
+  - Conservación aproximada de energía y momento angular
 
 ### 🎨 Efectos Visuales Avanzados
 - **Disco de acreción** animado con estructura espiral
@@ -114,9 +115,9 @@ Una estrella en curso de colisión con el agujero negro.
 ## Características Técnicas
 
 ### Precisión Física
-- Integración Runge-Kutta 4º orden
+- Integración con subpasos múltiples
 - Correcciones relativistas de Schwarzschild
-- Conservación de cantidades físicas
+- Conservación aproximada de cantidades físicas
 
 ### Rendimiento
 - Optimización para múltiples objetos
