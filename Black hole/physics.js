@@ -69,64 +69,89 @@ class PhysicsEngine {
         const subDt = dt / steps;
 
         for (let step = 0; step < steps; step++) {
-            this.objects.forEach(object => {
-                if (!object.absorbed) {
-                    this.updateObject(object, subDt);
+            // Calcular aceleraciones iniciales
+            const accelerations = this.objects.map(() => ({ x: 0, y: 0 }));
+
+            // Aceleración debida al agujero negro
+            this.objects.forEach((object, i) => {
+                if (object.absorbed) return;
+                const acc = this.calculateBlackHoleAcceleration(object);
+                accelerations[i].x += acc.x;
+                accelerations[i].y += acc.y;
+            });
+
+            // Interacciones gravitacionales entre objetos
+            for (let i = 0; i < this.objects.length; i++) {
+                const obj1 = this.objects[i];
+                if (obj1.absorbed) continue;
+                for (let j = i + 1; j < this.objects.length; j++) {
+                    const obj2 = this.objects[j];
+                    if (obj2.absorbed) continue;
+
+                    const dx = obj2.position.x - obj1.position.x;
+                    const dy = obj2.position.y - obj1.position.y;
+                    const r = Math.sqrt(dx * dx + dy * dy);
+                    if (r === 0) continue;
+
+                    const F = CONSTANTS.G * obj1.massKg * obj2.massKg / (r * r);
+                    const ax = F * dx / r;
+                    const ay = F * dy / r;
+
+                    accelerations[i].x += ax / obj1.massKg;
+                    accelerations[i].y += ay / obj1.massKg;
+                    accelerations[j].x -= ax / obj2.massKg;
+                    accelerations[j].y -= ay / obj2.massKg;
                 }
+            }
+
+            // Actualizar velocidad y posición
+            this.objects.forEach((object, i) => {
+                if (object.absorbed) return;
+                object.velocity.x += accelerations[i].x * subDt;
+                object.velocity.y += accelerations[i].y * subDt;
+                object.position.x += object.velocity.x * subDt;
+                object.position.y += object.velocity.y * subDt;
+            });
+
+            // Verificar absorción por el agujero negro
+            this.objects.forEach(object => {
+                if (object.absorbed) return;
+                const r = this.getDistance(object.position, this.blackHole.position);
+                if (r < this.blackHole.schwarzschildRadius) {
+                    object.absorbed = true;
+                    object.absorptionTime = 1.0;
+                    this.blackHole.mass += object.massKg / CONSTANTS.SOLAR_MASS;
+                    this.blackHole.updateProperties();
+                }
+            });
+
+            // Manejar colisiones entre objetos
+            this.handleCollisions();
+
+            // Actualizar efectos y propiedades
+            this.objects.forEach(object => {
+                if (object.absorbed) return;
+                const r = this.getDistance(object.position, this.blackHole.position);
+                if (this.relativistic) {
+                    this.applyRelativisticEffects(object, r);
+                }
+                object.updateTrail(this.maxTrailLength);
+                this.updateOrbitalProperties(object);
             });
         }
 
-        // Limpiar objetos absorbidos
-        this.objects = this.objects.filter(obj => !obj.absorbed || obj.absorptionTime > 0);
+        // Limpiar objetos eliminados o absorbidos
+        this.objects = this.objects.filter(obj => !obj.absorbed);
     }
 
-    updateObject(object, dt) {
-        const r = this.getDistance(object.position, this.blackHole.position);
-        
-        // Verificar si está dentro del horizonte de eventos
-        if (r < this.blackHole.schwarzschildRadius) {
-            if (!object.absorbed) {
-                object.absorbed = true;
-                object.absorptionTime = 1.0;
-                this.blackHole.mass += object.mass / CONSTANTS.SOLAR_MASS;
-                this.blackHole.updateProperties();
-            }
-            return;
-        }
-
-        // Calcular aceleración gravitacional
-        const acceleration = this.calculateAcceleration(object, r);
-        
-        // Actualizar velocidad y posición usando Runge-Kutta 4
-        if (this.accuracy === 'high') {
-            this.rungeKutta4(object, dt, acceleration);
-        } else {
-            // Método de Euler mejorado
-            object.velocity.x += acceleration.x * dt;
-            object.velocity.y += acceleration.y * dt;
-            object.position.x += object.velocity.x * dt;
-            object.position.y += object.velocity.y * dt;
-        }
-
-        // Efectos relativistas
-        if (this.relativistic) {
-            this.applyRelativisticEffects(object, r);
-        }
-
-        // Actualizar trail
-        object.updateTrail(this.maxTrailLength);
-
-        // Calcular propiedades orbitales
-        this.updateOrbitalProperties(object);
-    }
-
-    calculateAcceleration(object, r) {
+    calculateBlackHoleAcceleration(object) {
         const dx = this.blackHole.position.x - object.position.x;
         const dy = this.blackHole.position.y - object.position.y;
-        
+        const r = Math.sqrt(dx * dx + dy * dy);
+
         // Fuerza gravitacional newtoniana
         let F = CONSTANTS.G * this.blackHole.massKg * object.massKg / (r * r);
-        
+
         // Corrección relativista (aproximación de Schwarzschild)
         if (this.relativistic) {
             const rs = this.blackHole.schwarzschildRadius;
@@ -134,67 +159,45 @@ class PhysicsEngine {
             const relativisticFactor = 1 + 3 * rs / r + v2 / (CONSTANTS.c * CONSTANTS.c);
             F *= relativisticFactor;
         }
-        
+
         const acceleration = F / object.massKg;
-        
+
         return {
             x: acceleration * dx / r,
             y: acceleration * dy / r
         };
     }
 
-    rungeKutta4(object, dt, acceleration) {
-        const pos = { ...object.position };
-        const vel = { ...object.velocity };
-        
-        // k1
-        const k1v = acceleration;
-        const k1p = vel;
-        
-        // k2
-        const pos2 = {
-            x: pos.x + k1p.x * dt / 2,
-            y: pos.y + k1p.y * dt / 2
-        };
-        const vel2 = {
-            x: vel.x + k1v.x * dt / 2,
-            y: vel.y + k1v.y * dt / 2
-        };
-        const r2 = this.getDistance(pos2, this.blackHole.position);
-        const k2v = this.calculateAcceleration({ position: pos2, velocity: vel2, massKg: object.massKg }, r2);
-        const k2p = vel2;
-        
-        // k3
-        const pos3 = {
-            x: pos.x + k2p.x * dt / 2,
-            y: pos.y + k2p.y * dt / 2
-        };
-        const vel3 = {
-            x: vel.x + k2v.x * dt / 2,
-            y: vel.y + k2v.y * dt / 2
-        };
-        const r3 = this.getDistance(pos3, this.blackHole.position);
-        const k3v = this.calculateAcceleration({ position: pos3, velocity: vel3, massKg: object.massKg }, r3);
-        const k3p = vel3;
-        
-        // k4
-        const pos4 = {
-            x: pos.x + k3p.x * dt,
-            y: pos.y + k3p.y * dt
-        };
-        const vel4 = {
-            x: vel.x + k3v.x * dt,
-            y: vel.y + k3v.y * dt
-        };
-        const r4 = this.getDistance(pos4, this.blackHole.position);
-        const k4v = this.calculateAcceleration({ position: pos4, velocity: vel4, massKg: object.massKg }, r4);
-        const k4p = vel4;
-        
-        // Actualizar posición y velocidad
-        object.position.x += (k1p.x + 2 * k2p.x + 2 * k3p.x + k4p.x) * dt / 6;
-        object.position.y += (k1p.y + 2 * k2p.y + 2 * k3p.y + k4p.y) * dt / 6;
-        object.velocity.x += (k1v.x + 2 * k2v.x + 2 * k3v.x + k4v.x) * dt / 6;
-        object.velocity.y += (k1v.y + 2 * k2v.y + 2 * k3v.y + k4v.y) * dt / 6;
+    handleCollisions() {
+        const toRemove = new Set();
+
+        for (let i = 0; i < this.objects.length; i++) {
+            const obj1 = this.objects[i];
+            if (obj1.absorbed || toRemove.has(obj1)) continue;
+
+            for (let j = i + 1; j < this.objects.length; j++) {
+                const obj2 = this.objects[j];
+                if (obj2.absorbed || toRemove.has(obj2)) continue;
+
+                const dist = this.getDistance(obj1.position, obj2.position);
+                if (dist < obj1.radius + obj2.radius) {
+                    // Combinar objetos conservando el momento
+                    const primary = obj1.massKg >= obj2.massKg ? obj1 : obj2;
+                    const secondary = primary === obj1 ? obj2 : obj1;
+                    const totalMass = primary.massKg + secondary.massKg;
+
+                    primary.velocity.x = (primary.velocity.x * primary.massKg + secondary.velocity.x * secondary.massKg) / totalMass;
+                    primary.velocity.y = (primary.velocity.y * primary.massKg + secondary.velocity.y * secondary.massKg) / totalMass;
+                    primary.updateMass(totalMass);
+
+                    toRemove.add(secondary);
+                }
+            }
+        }
+
+        if (toRemove.size > 0) {
+            this.objects = this.objects.filter(obj => !toRemove.has(obj));
+        }
     }
 
     applyRelativisticEffects(object, r) {
@@ -347,6 +350,26 @@ class SpaceObject {
         this.timeDilation = 1;
         this.redshift = 0;
         this.orbitalParameters = null;
+    }
+
+    updateMass(newMassKg) {
+        this.massKg = newMassKg;
+        switch (this.type) {
+            case 'planet':
+            case 'asteroid':
+                this.mass = this.massKg / CONSTANTS.EARTH_MASS;
+                this.radius = this.type === 'planet'
+                    ? 6371000 * Math.pow(this.mass, 0.33)
+                    : 100000;
+                break;
+            case 'star':
+            case 'neutron':
+                this.mass = this.massKg / CONSTANTS.SOLAR_MASS;
+                this.radius = this.type === 'star'
+                    ? 696340000 * Math.pow(this.mass, 0.8)
+                    : 10000;
+                break;
+        }
     }
 
     updateTrail(maxLength) {
