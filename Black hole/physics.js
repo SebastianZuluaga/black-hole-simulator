@@ -88,11 +88,13 @@ class PhysicsEngine {
             if (!object.absorbed) {
                 object.absorbed = true;
                 object.absorptionTime = 1.0;
-                this.blackHole.mass += object.mass / CONSTANTS.SOLAR_MASS;
+                // Convertir la masa del objeto a masas solares antes de añadirla
+                this.blackHole.mass += object.massKg / CONSTANTS.SOLAR_MASS;
+                // Recalcular propiedades del agujero negro con la nueva masa
                 this.blackHole.updateProperties();
+                }
+                return;
             }
-            return;
-        }
 
         // Calcular aceleración gravitacional
         const acceleration = this.calculateAcceleration(object, r);
@@ -285,6 +287,9 @@ class BlackHole {
     }
 
     updateProperties() {
+        // Actualizar masa en kilogramos según la masa en masas solares
+        this.massKg = this.mass * CONSTANTS.SOLAR_MASS;
+
         // Radio de Schwarzschild
         this.schwarzschildRadius = 2 * CONSTANTS.G * this.massKg / (CONSTANTS.c * CONSTANTS.c);
         
